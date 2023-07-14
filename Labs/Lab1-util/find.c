@@ -40,6 +40,14 @@ char* strcat(char* dest, const char* src){
   return dest;
 }
 
+void removeEndSpace(char* str){
+  int cnt = 0;
+  for (int i = 0; str[i]; i ++ ){
+    if (str[i] != ' ') str[cnt ++ ] = str[i];
+  }
+  str[cnt] = '\0';
+}
+
 void find(char* path, char* file){
   char buf[512], *p;
   int fd;
@@ -56,8 +64,6 @@ void find(char* path, char* file){
     close(fd);
     return;
   }
-
-  printf("%d\n", st.type);
   // st.type 一定是文件夹
   if(st.type == T_FILE){
     fprintf(2, "find: <path> <file>");
@@ -78,19 +84,24 @@ void find(char* path, char* file){
     if(de.inum == 0) continue;
     memmove(p, de.name, DIRSIZ);
     p[DIRSIZ] = 0;
+    char* filename = fmtname(buf);
+    removeEndSpace(filename);
+    
     if(stat(buf, &st) < 0){
       printf("find: cannot stat %s\n", buf);
       continue;
     }
     if(st.type == T_FILE){  // 是文件，判断是否是dest_file
-      if(strcmp(fmtname(buf), file) == 0){  // 是
+      if(strcmp(filename, file) == 0){  // 是
+        // printf("current file(dir) is %s %d %d\n", filename, strcmp(filename, "."), strlen(filename));
         printf("%s\n", buf);
-        close(fd);
-        exit(0);  // success
+        // close(fd);
+        // exit(0);  // success
       }else {  // 不是，继续寻找
         continue;
       }
     }else if(st.type == T_DIR){
+      if (*filename == '.') continue;
       find(buf, file);
     }
   }
