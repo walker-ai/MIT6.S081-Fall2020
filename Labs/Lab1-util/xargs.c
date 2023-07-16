@@ -97,6 +97,9 @@ int main(int argc, char* argv[]) {
         // printf("the child exited with status %d\n", status);
     }
    
+
+    // TODO
+    // I don't know why when I type the "echo 1 2 | xargs echo bye", the stdout isn't correct
     exit(0);
 }
 
