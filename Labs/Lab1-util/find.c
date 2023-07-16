@@ -117,5 +117,12 @@ main(int argc, char* argv[]){
     exit(1);
   }
   find(argv[1], argv[2]);
+
+  // TODO
+  // in xargs, there is a bug in find.c: when type "sh < xargstest.sh", the output is
+  // $ $ $ $ $ $ hello
+  // hello
+  // hello
+  // $ $
   exit(0);
 }
