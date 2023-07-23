@@ -301,7 +301,7 @@ vmprint(pagetable_t pagetable, int level)
       // this PTE points to lower-level page table.
       for (int j = 0; j < level - 1; j ++ ) printf(".. ");
       printf("..%d: pte %p pa %p\n", i, pte, child);
-      vmprint((pagetable_t)child);
+      vmprint((pagetable_t)child, level);
       
     } else if(pte & PTE_V){
       // leaf
