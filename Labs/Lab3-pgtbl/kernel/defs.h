@@ -182,7 +182,7 @@ void            vmprint(pagetable_t, int);
 void            ukvmmap(pagetable_t, uint64, uint64, uint64, int);
 pagetable_t     ukvminit();
 void            ukvminithart(pagetable_t);
-pte_t*            walk(pagetable_t, uint64, int);
+pte_t*          walk(pagetable_t, uint64, int);
 
 
 // plic.c
