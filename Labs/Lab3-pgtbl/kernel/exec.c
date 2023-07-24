@@ -115,8 +115,9 @@ exec(char *path, char **argv)
   p->trapframe->epc = elf.entry;  // initial program counter = main
   p->trapframe->sp = sp; // initial stack pointer
   proc_freepagetable(oldpagetable, oldsz);
-  
-  if(p->pid == 1) {
+
+
+  if (p->pid == 1) {
     printf("page table %p\n", p->pagetable);
     vmprint(p->pagetable, 0);
   }
