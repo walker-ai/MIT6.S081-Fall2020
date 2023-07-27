@@ -293,6 +293,8 @@ fork(void)
 
   pid = np->pid;
 
+  np->mask = p->mask;  // add here, copy the trace mask from parent to the child process
+
   np->state = RUNNABLE;
 
   release(&np->lock);
