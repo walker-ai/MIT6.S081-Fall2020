@@ -1,4 +1,4 @@
-### vmprint
+# vmprint
 
 参照 `freewalk` 函数，不同的是需要给 `vmprint` 传入一个 `level` 参数表示当前页目录/页表的级别
 
@@ -42,7 +42,7 @@ if (p->pid == 1) {
 return argc
 ```
 
-### kernel page table per process
+# kernel page table per process
 
 xv6 中有一个单独的在内核中执行程序时的内核页表，也是所有进程共享的全局内核页表，当内核需要使用在系统调用中传递用户指针（例如，传递给 `write()` 的缓冲区指针）时，必须首先将指针转换成物理地址。因此为每个进程都维护一个内核页表是一个更好的选择，再在内核页表副本中维护一个关于内核栈的映射。
 
@@ -334,7 +334,7 @@ kvmpa(uint64 va)
 }
 ```
 
-### simplify copyin/copyinstr
+# simplify copyin/copyinstr
 
 首先要将用户映射添加到每个进程的内核页表中，以使得程序能够直接解引用用户指针。
 
