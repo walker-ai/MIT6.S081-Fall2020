@@ -292,7 +292,7 @@ growproc(int n)
   sz = p->sz;
   if(n > 0){
     // 加上PLIC限制
-    if(PGROUNDUP(sz + n) >= PILC)
+    if(PGROUNDUP(sz + n) >= PLIC)
       return -1;
 
     if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
