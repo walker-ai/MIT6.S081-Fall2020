@@ -18,6 +18,7 @@ struct spinlock pid_lock;
 extern void forkret(void);
 static void wakeup1(struct proc *chan);
 static void freeproc(struct proc *p);
+void free_user_kernel_pagetable(pagetable_t pagetable);
 
 extern char trampoline[]; // trampoline.S
 
@@ -34,12 +35,15 @@ procinit(void)
       // Allocate a page for the process's kernel stack.
       // Map it high in memory, followed by an invalid
       // guard page.
+      
+      /*
       char *pa = kalloc();
       if(pa == 0)
         panic("kalloc");
       uint64 va = KSTACK((int) (p - proc));
       kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
       p->kstack = va;
+      */
   }
   kvminithart();
 }
@@ -121,6 +125,20 @@ found:
     return 0;
   }
 
+  p->kernel_pagetable = ukvminit();  // 初始化进程的内核页表
+  if(p->kernel_pagetable == 0){
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+
+  char* pa = kalloc();
+  if (pa == 0)
+    panic("kalloc");
+  uint64 va = KSTACK((int)(p - proc));
+  ukvmmap(p->kernel_pagetable, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+  p -> kstack = va;
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -142,6 +160,21 @@ freeproc(struct proc *p)
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
+
+  // 释放内核栈
+  if(p->kstack) {
+    pte_t* pte = walk(p->kernel_pagetable, p->kstack, 0);
+    kfree((void*)PTE2PA(*pte));
+  }
+  p->kstack = 0;
+
+  // 释放内核页表
+
+  if(p->kernel_pagetable) {
+      free_user_kernel_pagetable(p->kernel_pagetable);
+  }
+  p->kernel_pagetable = 0;
+
   p->sz = 0;
   p->pid = 0;
   p->parent = 0;
@@ -150,6 +183,23 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+}
+
+
+void
+free_user_kernel_pagetable(pagetable_t pagetable)
+{
+    for (int i = 0; i < 512; i ++ ) {
+        pte_t pte = pagetable[i];
+        if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){
+            uint64 child = PTE2PA(pte);
+            free_user_kernel_pagetable((pagetable_t)child);
+            pagetable[i] = 0;
+        } else if (pte & PTE_V) {
+            pagetable[i] = 0;
+        }
+    }
+    kfree((void*)pagetable);
 }
 
 // Create a user page table for a given process,
@@ -473,7 +523,16 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+
+        // 加载satp寄存器
+        ukvminithart(p->kernel_pagetable);
+
         swtch(&c->context, &p->context);
+
+
+        // 加载回全局内核页面
+        kvminithart();
+
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.

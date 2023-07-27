@@ -156,7 +156,7 @@ char* pa = kalloc();
 if (pa == 0)
     panic("kalloc");
 uint64 va = KSTACK((int)(p - proc));
-ukvmmap(p->kernel_pagetable, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+ukvmmap(p->kernel_pagetable, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
 p -> kstack = va;
 
 
