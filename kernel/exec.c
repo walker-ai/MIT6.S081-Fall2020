@@ -116,6 +116,11 @@ exec(char *path, char **argv)
   p->trapframe->sp = sp; // initial stack pointer
   proc_freepagetable(oldpagetable, oldsz);
 
+
+
+  // 添加用户映射到内核空间
+  map_user_kernel(p->pagetable, p->kernel_pagetable, 0, p->sz);
+
   if (p->pid == 1) {
     printf("page table %p\n", p->pagetable);
     vmprint(p->pagetable, 0);
