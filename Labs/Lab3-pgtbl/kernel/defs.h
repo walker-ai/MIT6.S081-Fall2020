@@ -183,7 +183,11 @@ void            ukvmmap(pagetable_t, uint64, uint64, uint64, int);
 pagetable_t     ukvminit();
 void            ukvminithart(pagetable_t);
 pte_t*          walk(pagetable_t, uint64, int);
+void            map_user_kernel(pagetable_t, pagetable_t, uint64, uint64);
 
+// vmcopyin.c
+int             copyin_new(pagetable_t, char*, uint64, uint64);
+int             copyinstr_new(pagetable_t, char*, uint64, uint64);
 
 // plic.c
 void            plicinit(void);

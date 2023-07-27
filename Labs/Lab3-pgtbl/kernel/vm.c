@@ -161,6 +161,27 @@ ukvmmap(pagetable_t pagetable, uint64 va, uint64 pa, uint64 sz, int perm)
         panic("ukvmmap");
 }
 
+void 
+map_user_kernel(pagetable_t user_pagetable, pagetable_t kernel_pagetable, uint64 oldsz, uint64 newsz)
+{
+	pte_t* pte_user;
+    pte_t* pte_kernel;
+	uint64 pa, i;
+	uint flags;
+	
+	oldsz = PGROUNDUP(oldsz);
+	for (i = oldsz; i < newsz; i += PGSIZE) {
+		if((pte_user = walk(user_pagetable, i, 0)) == 0)
+			panic("map_user_kernel: src pte does not exist");
+		if((pte_kernel = walk(kernel_pagetable, i, 1)) == 0)
+			panic("map_user_kernel: dist pte does not exist");
+		
+		flags = (PTE_FLAGS(*pte_user)) & (~PTE_U);
+		pa = PTE2PA(*pte_user);
+		*pte_kernel = PA2PTE(pa) | flags;
+	}
+}
+
 // translate a kernel virtual address to
 // a physical address. only needed for
 // addresses on the stack.
@@ -440,22 +461,7 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 int
 copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 {
-  uint64 n, va0, pa0;
-
-  while(len > 0){
-    va0 = PGROUNDDOWN(srcva);
-    pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
-      return -1;
-    n = PGSIZE - (srcva - va0);
-    if(n > len)
-      n = len;
-    memmove(dst, (void *)(pa0 + (srcva - va0)), n);
-
-    len -= n;
-    dst += n;
-    srcva = va0 + PGSIZE;
-  }
+  if (copyin_new(pagetable, dst, srcva, len) < 0) return -1;
   return 0;
 }
 
@@ -466,38 +472,6 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 int
 copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 {
-  uint64 n, va0, pa0;
-  int got_null = 0;
-
-  while(got_null == 0 && max > 0){
-    va0 = PGROUNDDOWN(srcva);
-    pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
-      return -1;
-    n = PGSIZE - (srcva - va0);
-    if(n > max)
-      n = max;
-
-    char *p = (char *) (pa0 + (srcva - va0));
-    while(n > 0){
-      if(*p == '\0'){
-        *dst = '\0';
-        got_null = 1;
-        break;
-      } else {
-        *dst = *p;
-      }
-      --n;
-      --max;
-      p++;
-      dst++;
-    }
-
-    srcva = va0 + PGSIZE;
-  }
-  if(got_null){
-    return 0;
-  } else {
-    return -1;
-  }
+  if(copyinstr_new(pagetable, dst, srcva, max) < 0) return -1;
+  return 0;
 }

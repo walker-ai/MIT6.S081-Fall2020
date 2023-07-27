@@ -267,6 +267,7 @@ userinit(void)
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
 
+
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
   p->trapframe->sp = PGSIZE;  // user stack pointer
@@ -276,6 +277,7 @@ userinit(void)
 
   p->state = RUNNABLE;
 
+  map_user_kernel(p->pagetable, p->kernel_pagetable, 0, p->sz);
   release(&p->lock);
 }
 
@@ -295,6 +297,8 @@ growproc(int n)
   } else if(n < 0){
     sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
+  // 添加用户映射到内核空间
+  map_user_kernel(p->pagetable, p->kernel_pagetable, p->sz, sz);
   p->sz = sz;
   return 0;
 }
@@ -320,6 +324,9 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
+
+  // 添加用户映射到内核空间
+  map_user_kernel(np->pagetable, np->kernel_pagetable, 0, np->sz);
 
   np->parent = p;
 
