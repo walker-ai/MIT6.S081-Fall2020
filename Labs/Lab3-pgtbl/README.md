@@ -3,7 +3,7 @@
 参照 `freewalk` 函数，不同的是需要给 `vmprint` 传入一个 `level` 参数表示当前页目录/页表的级别
 
 ```C
-void 
+void
 vmprint(pagetable_t pagetable, int level)
 {
     level ++ ;
@@ -13,7 +13,7 @@ vmprint(pagetable_t pagetable, int level)
         uint64 child = PTE2PA(pte);
         if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){
             // 当前是顶级页目录 or 二级页目录
-            for (int j = 0; j < level -1; j ++ ) 
+            for (int j = 0; j < level -1; j ++ )
                 printf(".. ")
             printf("..%d: pte %p pa %p\n", i, pte, child);
             vmprint((pagetable_t)child, level);
@@ -27,7 +27,7 @@ vmprint(pagetable_t pagetable, int level)
 在 `defs.h` 中添加声明，以便 `exec.c` 中能调用：
 
 ```c
-void            vmprint(pagetable_t, int);      
+void            vmprint(pagetable_t, int);
 ```
 
 然后在 `exec.c` 中进行调用：
@@ -42,16 +42,14 @@ if (p->pid == 1) {
 return argc
 ```
 
-
-
 ### kernel page table per process
 
-xv6中有一个单独的在内核中执行程序时的内核页表，也是所有进程共享的全局内核页表，当内核需要使用在系统调用中传递用户指针（例如，传递给 `write()` 的缓冲区指针）时，必须首先将指针转换成物理地址。因此为每个进程都维护一个内核页表是一个更好的选择，再在内核页表副本中维护一个关于内核栈的映射。
+xv6 中有一个单独的在内核中执行程序时的内核页表，也是所有进程共享的全局内核页表，当内核需要使用在系统调用中传递用户指针（例如，传递给 `write()` 的缓冲区指针）时，必须首先将指针转换成物理地址。因此为每个进程都维护一个内核页表是一个更好的选择，再在内核页表副本中维护一个关于内核栈的映射。
 
 首先在 `proc.h` 的 `struct proc` 中添加一个字段
 
 ```c
-struct proc {                                                                                 
+struct proc {
   struct spinlock lock;
   // p->lock must be held when using these:
   enum procstate state;        // Process state
@@ -87,7 +85,7 @@ ukvmmap(pagetable_t pagetable, uint64 va, uint64 pa, uint64 sz, int perm)
 编写 `ukvminit`：
 
 ```c
-pagetable_t 
+pagetable_t
 ukvminit()
 {
     pagetable_t pagetable = (pagetable_t) kalloc();
@@ -118,7 +116,7 @@ ukvminit()
 void            ukvmmap(pagetable_t, uint64, uint64, uint64, int);
 pagetable_t     ukvminit();
 ```
- 
+
 将 `procinit` 函数中映射内核栈的代码部分迁移至 `alloc` 中实现，`procinit` 中移除映射内核栈的部分：
 
 ```c
@@ -137,7 +135,7 @@ for (p = proc; p < &proc[NPROC]; p ++ ) {
         panic("kalloc");
       uint64 va = KSTACK((int) (p - proc));
       kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
-      p->kstack = va; 
+      p->kstack = va;
       */
   }
   kvminithart();
@@ -155,7 +153,7 @@ if(p->kernel_pagetable == 0){
 }
 
 char* pa = kalloc();
-if (pa == 0) 
+if (pa == 0)
     panic("kalloc");
 uint64 va = KSTACK((int)(p - proc));
 ukvmmap(p->kernel_pagetable, (uint64)pa, PGSIZE, PTE_R | PTE_W);
@@ -183,7 +181,7 @@ ukvminithart(pagetable_t pagetable)
 在调度函数 `scheduler` 中，加载进程的内核页表至核心的 `satp` 寄存器：
 
 ```c
-void 
+void
 scheduler(void)
 {
     struct proc* p;
@@ -199,7 +197,7 @@ scheduler(void)
                 // Switch to chosen process.  It is the process's job
                 // to release its lock and then reacquire it
                 // before jumping back to us.
-                p->state = RUNNING;                                           
+                p->state = RUNNING;
                 c->proc = p;
 
                 // 加载satp寄存器
@@ -209,7 +207,7 @@ scheduler(void)
 
                 // 加载回全局内核页面
                 kvminithart();
-                
+
                 // Process is done running for now.
                 // It should have changed its p->state before coming back.
                 c->proc = 0;
@@ -224,7 +222,7 @@ scheduler(void)
 
 ```c
 static void
-freeproc(struct proc *p)             
+freeproc(struct proc *p)
 {
     if(p->trapframe)
         kfree((void*)p->trapframe);
@@ -251,7 +249,6 @@ freeproc(struct proc *p)
 }
 ```
 
-
 释放进程对应的内核页表，可以仿照 `freewalk` 函数，编写释放内核页表的函数 `free_user_kernel_pagetable`，然后声明加入到 `proc.c` 开头：
 
 ```c
@@ -276,7 +273,7 @@ free_user_kernel_pagetable(pagetable_t pagetable)
 
 ```c
 static void
-freeproc(struct proc *p)             
+freeproc(struct proc *p)
 {
     if(p->trapframe)
         kfree((void*)p->trapframe);
@@ -320,14 +317,14 @@ freeproc(struct proc *p)
 ...
 
 uint64
-kvmpa(uint64 va) 
+kvmpa(uint64 va)
 {
     uint64 off = va % PGSIZE;
     pte_t *pte;
-    uint64 pa; 
+    uint64 pa;
 
     // pte = walk(kernel_pagetable, va, 0);
-    pte = walk(myproc()->kernel_pagetable, va, 0); 
+    pte = walk(myproc()->kernel_pagetable, va, 0);
     if(pte == 0)
         panic("kvmpa");
     if((*pte & PTE_V) == 0)
@@ -337,3 +334,152 @@ kvmpa(uint64 va)
 }
 ```
 
+### simplify copyin/copyinstr
+
+首先要将用户映射添加到每个进程的内核页表中，以使得程序能够直接解引用用户指针。
+
+内核页表中，内核自身指令和数据的虚拟地址位于高位，用户空间的虚拟地址从 0 开始，不会和内核重叠。
+
+首先编写映射函数 `map_user_kerlnel`，实际上就是把用户空间虚拟地址对应 pte 条目一一写入内核页表对应的 pte
+
+```C
+void
+map_user_kernel(pagetable_t user_pagetable, pagetable_t kernel_pagetable, uint64 oldsz, uint64 newsz)
+{
+    pte_t* pte_user;
+    pte_t* pte_kernel;
+    uint64 pa, i;
+    uint flags;
+
+    // 为什么可以拿sz来作为地址，因为用户空间的虚拟地址是从0开始的，因此sz等于末尾地址
+
+    oldsz = PGROUNDUP(oldsz);  // 从下一个页的起始点开始
+    for (i = oldsz; i < newsz; i += PGSIZE) {
+        if((pte_user = walk(user_pagetable, i, 0)) == 0)  // 拿到用户空间物理地址的pte
+            panic("map_user_kernel: src pte does not exist");
+        if((pte_kernel = walk(kernel_pagetable, i, 1)) == 0)  // 拿到内核页表的对应虚拟地址i的pte
+            panic("map_user_kernel: dist pte does not exist");
+
+        flags = (PTE_FLAGS(*pte_user)) & (~PTE_U);  // 在内核模式下，无法访问设置了PTE_U的页面，因此需要去掉该标志位
+        pa = PTE2PA(*pte_user);
+        *pte_kernel = PA2PTE(pa) | flags;  // ppn加上标志位得到pte
+    }
+}
+```
+
+在内核更改进程的用户映射的每一处，都以相同的方式更改进程的内核页表
+
+在 `kernel/proc.c` 中的 `fork()` 处
+
+```C
+// Copy user memory from parent to child.
+if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
+    freeproc(np);
+    release(&np->lock);
+    return -1;
+}
+np->sz = p->sz;
+
+// 添加用户映射到内核空间
+map_user_kernel(np->pagetable, np->kernel_pagetable, 0, np->sz);
+```
+
+在 `kernel/exec.c` 中
+
+```C
+int
+exec(char* path, char** argv)
+{
+    ...
+
+    // Commit to the user image.
+    oldpagetable = p->pagetable;
+    p->pagetable = pagetable;
+    p->sz = sz;
+    p->trapframe->epc = elf.entry;  // initial program counter = main
+    p->trapframe->sp = sp; // initial stack pointer
+    proc_freepagetable(oldpagetable, oldsz);
+
+    // 添加用户映射到内核空间
+    map_user_kernel(p->pagetable, p->kernel_pagetable, 0, p->sz);
+
+    ...
+}
+```
+
+在 `kernel/proc.c` 中的 `growproc()` 处
+
+```C
+int
+growproc(int n)
+{
+  uint sz;
+  struct proc *p = myproc();
+
+  sz = p->sz;
+  if(n > 0){
+    // 加上PLIC限制
+    if(PGROUNDUP(sz + n) >= PLIC)  // 之所以要PGROUNDUP是因为uvmalloc会PGROUNDUP取下一页开始
+      return -1;
+    if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
+      return -1;
+    }
+  } else if(n < 0){
+    sz = uvmdealloc(p->pagetable, sz, sz + n);
+  }
+  // 添加用户映射到内核空间
+  map_user_kernel(p->pagetable, p->kernel_pagetable, p->sz, sz);
+  p->sz = sz;
+  return 0;
+}
+```
+
+在 `kernel/proc.c` 中的 `userinit` 中包含第一个进程的用户页表
+
+```C
+void
+userinit(void)
+{
+  struct proc *p;
+
+  p = allocproc();
+  initproc = p;
+--
+  // allocate one user page and copy init's instructions
+  // and data into it.
+  uvminit(p->pagetable, initcode, sizeof(initcode));
+  p->sz = PGSIZE;
+
+  // prepare for the very first "return" from kernel to user.
+  p->trapframe->epc = 0;      // user program counter
+  p->trapframe->sp = PGSIZE;  // user stack pointer
+
+  safestrcpy(p->name, "initcode", sizeof(p->name));
+  p->cwd = namei("/");
+
+  p->state = RUNNABLE;
+
+  map_user_kernel(p->pagetable, p->kernel_pagetable, 0, p->sz);
+  release(&p->lock);
+}
+```
+
+完成映射后对 `copyin` 和 `copyinstr` 做修改：
+
+```C
+int
+copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
+{
+    if (copyin_new(pagetable, dst, srcva, len) < 0) return -1;
+    return 0;
+}
+```
+
+```C
+int
+copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
+{
+    if(copyinstr_new(pagetable, dst, srcva, max) < 0) return -1;
+    return 0;
+}
+```
