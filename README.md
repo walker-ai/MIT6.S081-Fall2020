@@ -14,7 +14,7 @@ vmprint(pagetable_t pagetable, int level)
         if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){
             // 当前是顶级页目录 or 二级页目录
             for (int j = 0; j < level -1; j ++ )
-                printf(".. ")
+                printf(".. ");
             printf("..%d: pte %p pa %p\n", i, pte, child);
             vmprint((pagetable_t)child, level);
         } else if (pte & PTE_V){

@@ -289,6 +289,26 @@ freewalk(pagetable_t pagetable)
   kfree((void*)pagetable);
 }
 
+void
+vmprint(pagetable_t pagetable, int level)
+{
+    level ++ ;
+    // 共有512个条目
+    for (int i = 0; i < 512; i ++ ){
+        pte_t pte = pagetable[i];
+        uint64 child = PTE2PA(pte);
+        if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){
+            // 当前是顶级页目录 or 二级页目录
+            for (int j = 0; j < level -1; j ++ )
+                printf(".. ");
+            printf("..%d: pte %p pa %p\n", i, pte, child);
+            vmprint((pagetable_t)child, level);
+        } else if (pte & PTE_V){
+            printf(".. .. ..%d: pte %p pa %p\n", i, pte, child);
+        }
+    }
+}
+
 // Free user memory pages,
 // then free page-table pages.
 void
