@@ -80,3 +80,16 @@ kalloc(void)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
 }
+
+uint64
+freemem_collect(void)
+{
+  uint64 freemem_size = 0;
+  struct run *current_block = kmem.freelist;  // kmem.freelist为内存块的链表头部，一个内存块为一页，一页是4096字节
+  
+  while(current_block != 0){
+    freemem_size += PGSIZE;
+    current_block = current_block->next;
+  }
+  return freemem_size;
+}
