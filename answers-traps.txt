@@ -1,0 +1,79 @@
+# Which register contain arguments to functions? For example, which register
+hold 13 in main's call to printf?
+
+寄存器a0 - a7用于传递整型参数，一般是a0 - a3，如果超过4个参数就使用a0 -
+a7，a7用于保存系统调用号。按顺序传递，f0 - f7用于传递浮点型参数。
+
+值得注意的是，如果函数参数是字符型，可以转为ASCII码，用整型传递；
+如果是指针类型，同样可以用整型传递
+
+通过语句 li a2, 13 可知，a2寄存器保存了13
+
+# Where is the call to function f in the assembly code for main? Where is the
+call to g?(Hint: the compiler may inline functions)
+
+查看汇编代码：26:   45b1    li  a1, 12
+
+可知函数调用f(g(8)) +
+1被编译器优化成了内联函数，直接得出了答案是12并存放在a1寄存器中
+
+
+# At what address is the function printf located?
+
+auipc指令格式为：
+31                      12 11       7 6        0
+        imm[31:12]             rd       opcode
+            20                  5         7
+    U-immediate[31:12]        dest      auipc
+        20位立即数         目标寄存器   操作码
+
+auipc, rd, immediate
+
+将符号位扩展的20位（左移12位）立即数加到pc上，结果写入rd寄存器
+
+jalr指令格式为：
+31               20 19     15 14    12 11       7 6        0
+     imm[11:0]         rs1     funct3      rd       opcode
+        12              5        3          5         7
+    offset[11:0]      base       0         dest      jalr
+
+30:     00000097        auipc  ra, 0x0
+34:     600080e7        jalr   1536(a)
+
+jalr rd, offset(rs1)
+
+将pc设置为rs1的值加上offset，并将原来的pc的值+4，写入rd寄存器
+
+第一行代码：
+00000097(H) = 0...0 1001 0111(B)，对比指令格式，可见imm=0，dest=00001，opcode=0010111，对比汇编指令可知，auipc的操作码是0010111，ra寄存器代码是00001。这行代码将0x0左移12位（还是0x0）加到PC（当前为0x30）上并存入ra中，即ra中保存的是0x30
+
+第2行代码：
+600080e7(H) = 0110 0...0 1000 0000 1110 0111(B)，可见imm=0110 0000
+0000，rs1=00001，funct3=000，rd=00001，opcode=1100111，rs1和rd的寄存器代码都是00001，即都为寄存器ra。这对比jalr的标准格式有所不同，可能是此两处使用寄存器相同时，汇编中可以省略rd部分。
+
+
+ra中保存的是0x30，加上0x600后为0x630，即printf的地址，将pc设置为此地址，执行此行代码后，将跳转到printf函数执行，并将PC+4=0X34+0X4=0X38保存到ra中，供之后返回使用。所以printf地址是0x630
+
+
+# What value is in the register ra just after the jalr to printf in main?
+
+由上述分析可知，在jalr跳转到printf之后，ra的值是0x38
+
+# Run the following code.
+
+    unsigned int i = 0x00646c72;
+    printf("H%x Wo%s", 57616, &i);
+riscv  a0-a7d
+
+57616十六进制表示是0xe110，0x00646c72小端存储为72-6c-64-00，对照ASCII码表，72:r 6c:l 64:d 00:充当字符串结尾标识
+
+因此输出是 He110 World
+
+若为大端存储，i应该改为0x726c6400，不需要改变57616
+
+# In the following code, what is going to be printed after 'y='? (note: the
+        answer is not a specific value.) Why does this happen?
+    printf("x=%d y=%d", 3)
+
+原本需要两个参数，却传入了一个，因此y=后面打印的结果取决于之前a2中保存的数据
+
