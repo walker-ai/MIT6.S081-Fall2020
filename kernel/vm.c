@@ -22,8 +22,8 @@ extern char trampoline[]; // trampoline.S
 void
 kvminit()
 {
-  kernel_pagetable = (pagetable_t) kalloc();
-  memset(kernel_pagetable, 0, PGSIZE);
+  kernel_pagetable = (pagetable_t) kalloc();  // 为内核页表分配一个物理地址
+  memset(kernel_pagetable, 0, PGSIZE);  // 将这个内核页表置空
 
   // uart registers
   kvmmap(UART0, UART0, PGSIZE, PTE_R | PTE_W);
@@ -105,8 +105,8 @@ map_user_kernel(pagetable_t user_pagetable, pagetable_t kernel_pagetable, uint64
 void
 kvminithart()
 {
-  w_satp(MAKE_SATP(kernel_pagetable));
-  sfence_vma();
+  w_satp(MAKE_SATP(kernel_pagetable));  // 将内核页表的最高一级的物理地址写入satp寄存器
+  sfence_vma();  // 刷新当前CPU的TLB，在重新加载satp寄存器时，需要刷新TLB，以告诉cpu当前tlb无效，需要刷新
 }
 
 void
@@ -129,23 +129,24 @@ ukvminithart(pagetable_t pagetable)
 //   12..20 -- 9 bits of level-0 index.
 //    0..11 -- 12 bits of byte offset within the page.
 pte_t *
-walk(pagetable_t pagetable, uint64 va, int alloc)
+walk(pagetable_t pagetable, uint64 va, int alloc)  // walk函数是模仿MMU，查找一个虚拟地址对应的实际物理地址的PPN
 {
   if(va >= MAXVA)
     panic("walk");
-
-  for(int level = 2; level > 0; level--) {
-    pte_t *pte = &pagetable[PX(level, va)];
+  
+  // pagetable是最高级directory的物理地址
+  for(int level = 2; level > 0; level--) {  // 实际上只会执行两轮，对最高两级的page directory设置
+    pte_t *pte = &pagetable[PX(level, va)];  // PX是取得相应的9bit的PPN
     if(*pte & PTE_V) {
-      pagetable = (pagetable_t)PTE2PA(*pte);
-    } else {
-      if(!alloc || (pagetable = (pde_t*)kalloc()) == 0)
+      pagetable = (pagetable_t)PTE2PA(*pte);  // 如果该pte有效，那么获得对应的PPN，PTE2PA后，获得下一级directory的物理地址
+    } else {  // pte无效，所需的页面还没分配，如果设置了alloc参数，则分配一个新的页面
+      if(!alloc || (pagetable = (pde_t*)kalloc()) == 0)  // 没有设置alloc参数 或者 分配页面失败，返回
         return 0;
       memset(pagetable, 0, PGSIZE);
-      *pte = PA2PTE(pagetable) | PTE_V;
+      *pte = PA2PTE(pagetable) | PTE_V;  // 将实际的物理地址再转化为PPN，加上标志位
     }
   }
-  return &pagetable[PX(0, va)];
+  return &pagetable[PX(0, va)];  // 返回最低层级页表的PPN，也就是实际物理地址的PPN
 }
 
 // Look up a virtual address, return the physical address,
@@ -175,7 +176,7 @@ walkaddr(pagetable_t pagetable, uint64 va)
 // only used when booting.
 // does not flush TLB or enable paging.
 void
-kvmmap(uint64 va, uint64 pa, uint64 sz, int perm)
+kvmmap(uint64 va, uint64 pa, uint64 sz, int perm)  // 将虚拟地址映射至物理地址，sz是映射大小，通常为一页，
 {
   if(mappages(kernel_pagetable, va, sz, pa, perm) != 0)
     panic("kvmmap");
@@ -215,11 +216,11 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   a = PGROUNDDOWN(va);
   last = PGROUNDDOWN(va + size - 1);
   for(;;){
-    if((pte = walk(pagetable, a, 1)) == 0)
-      return -1;
-    if(*pte & PTE_V)
+    if((pte = walk(pagetable, a, 1)) == 0)  // pagetable是最高级directory的物理地址，a是要映射到的虚拟地址，1表示设置alloc参数
+      return -1;  // 如果查找失败，返回-1（跟walk函数有关，没有设置alloc参数或者分配页面失败）
+    if(*pte & PTE_V)  // 如果该pte已经被设置了有效，说明该地址已经被用，需要重新映射
       panic("remap");
-    *pte = PA2PTE(pa) | perm | PTE_V;
+    *pte = PA2PTE(pa) | perm | PTE_V;  // 设置pte为有效
     if(a == last)
       break;
     a += PGSIZE;
