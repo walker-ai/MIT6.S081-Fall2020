@@ -1,0 +1,355 @@
+1. exec.c里面的vmprint(p->pagetable)，p->pagetable是顶级页表的物理地址，保存在satp寄存器中
+
+
+vm.c接收到以后，for (int i = 0; i < 512; i ++ ) 
+		pte_t pte = pagetable[i];   
+
+这里的pte保留的是44位的ppn，要做处理，ppn >> 10，去除10位标志位，再 << 12，添加12位0保证对齐，这样才是下一个页目录的物理地址
+
+
+那张树形三级页表图的含义是，xv6中为了简单，大多将虚拟地址直接映射成物理地址，比如UART0，物理地址是0x10000000（memlayout.h）中定义
+根据映射的规则，它的虚拟地址也应该是0x10000000，那么0x10000000先右移12位得到0x10000，这是去除了12位偏移的结果，再右移9位得到0x80也就是
+128，即为L1索引，也就是中级目录的pte，可以看到是匹配的，这里我忽略了一个一点，一个虚拟地址（27位+12位偏移）是完全用来映射一个物理地址的，
+导致想了很久
+
+
+void* 	
+kalloc()
+{
+	struct run* r;
+	
+	acquire(&kmem.lock);
+	r = kmem.freelist;
+	if(r)
+		kmem.freelist = r -> next;
+	release(&kmem.lock);
+	if(r)
+		memset((char*)r, 5, PGSIZE);
+	return (void*)r;
+}
+
+#define PXMASK  0x1FF  // 9bit
+#define PGSHIFT  12
+#define PXSHIFT(level)  (PGSHIFT + (9*(level)))
+#define PX(level, va)   ((((uint64) (va)) >> PXSHIFT(level)) & PXMASK)
+
+pte_t *
+walk(pagetable_t, pagetable, uint64 va, int alloc)  // walk函数是模仿MMU，查找一个虚拟地址对应的实际物理地址的PPN
+{
+	if(va >= MAXVA)
+		panic("walk");
+	
+	// pagetable是最高级directory的物理地址
+	for(int level = 2, level > 0; level -- ){  // 实际上只会执行两轮，对最高两级的page directory设置
+		pte_t *pte = &pagetable[PX(level, va)];  // PX是取得相应的9bit的PPN，
+		if(*pte & PTE_V){
+			pagetable = (pagetable_t)PTE2PA(*pte);  // 如果该pte有效，那么获得对应的PPN，PTE2PA后，获得下一级directory的物理地址
+		}else{  // pte无效，所需的页面还没分配，如果设置了alloc参数，则分配一个新的页面
+			if(!alloc || (pagetable = (pde_t*)kalloc()) == 0)  // 没有设置alloc参数 或者 分配页面失败，返回
+				return 0;
+			memset(pagetable, 0, PGSIZE);
+			*pte = PA2PTE(pagetable) | PTE_V;  // 将实际的物理地址再转化为PPN，加上标志位
+		}
+	}
+	return &pagetable[PX(0, va)];  // 返回最低层级页表的PPN，也就是实际物理地址的PPN
+}
+
+int 
+mappages(pagetable_t, pagetable, uint64 va, uint64 size, uint64 pa, int perm)
+{
+	uint64 a, last;
+	pte_t *pte;
+	
+	a = PGROUNGDDOWN(va);
+	last = PGROUNDDOWN(va + size, - 1);
+	for(;;){
+		if((pte = walk(pagetable, a, 1)) == 0)  // pagetable是最高级directory的物理地址，a是要映射到的虚拟地址，1表示设置alloc参数
+			return -1;  // 如果查找失败，返回-1（跟walk函数有关，没有设置alloc参数或者分配页面失败）
+		if(*pte & PTE_V) // 如果该pte已经被设置了有效，说明该地址已经被用，需要重新映射
+			panic("remap")
+		*pte = PA2PTE(pa) | perm | PTE_V;  // 设置pte为有效
+		if(a == last)
+			break;
+		a += PGSIZE;
+		pa += PGSIZE;
+	}
+	return 0;
+}
+
+void 
+kvmmap(uint64 va, uint64 pa, uint64 sz, int perm)  // 将虚拟地址映射至物理地址，sz是映射大小，通常为一页，
+{
+	if(mappages(kernel_pagetable, va, sz, pa, perm) != 0)
+		panic("kvmmap");
+}
+
+void
+kvminit()
+{
+	kernel_pagetable = (pagetable_t) kalloc();  // 为内核页表分配一个物理地址
+	memset(kernel_pagetable, 0, PGSIZE);  // 将这个内核页表置空
+	
+	// uart registers
+	
+	kvmmap(UART0, UART0, PGSIZE, PTE_R | PTE_W);
+	
+	......
+	
+	// 映射一系列 0x80000000 以下的外设
+
+}
+
+void
+kvminithart()
+{
+	w_satp(MAKE_SATP(kernel_pagetable));  // 将内核页表的最高一级的物理地址写入satp寄存器
+	sfence_vma();  // 刷新当前CPU的TLB，在重新加载satp寄存器时，需要刷新TLB，以告诉cpu当前tlb无效，需要刷新
+}
+
+
+#define TRAMPOLINE (MAXVA - PGSIZE)
+#define KSTACK(p) (TRAMPOLINE - ((p) + 1)* 2*PGSIZE)
+
+void
+procinit(void)  // 为每个进程分配内核栈
+{
+	struct proc* p;
+	
+	initlock(&pid_lock, "nextpid");
+	for(p = proc; p < &proc[NPROC]; p++){
+		initlock(&p->lock, "proc");
+		
+		char* pa = kalloc();
+		if(pa == 0)
+			panic("kalloc");
+		uint64 va = KSTACK((int) (p - proc));  // 设置va在内核栈的高地址位，k-stack1...n，guardpage
+		
+		kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);  // 将va对应映射的pte添加到内核页表中
+		p->kstack = va;
+	}
+	kvminithart();
+}
+
+
+
+物理内存分配：
+
+物理内存页：空闲列表
+
+struct run {
+	struct run* next;
+}
+
+struct {
+	struct spinlock lock;
+	struct run* freelist;  // 空闲列表
+} kmem;
+
+步骤1：初始化分配器
+
+extern char end[]; // first address after kernel
+
+void
+kfree(void* pa)  // 释放从pa开始的，一页内存
+{
+	struct run *r;  
+	// pa % PGSIZE != 0 是为了判断给定的内存地址是否与页面对齐
+	// 因为os中要求内存地址必须是页面大小的整数倍
+	// 例如4KB页面大小，有效内存地址是0x00000000, 0x00001000, 0x00002000等
+	// (char*)是为了比较指针大小，即内存位置
+	
+	if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
+		panic("kfree");
+	
+	memset(pa, 1, PGSIZE);  // 填充垃圾数据
+	r = (struct run*)pa;
+	
+	acquire(&kmem.lock);
+	r->next = kmem.freelist;
+	kmem.freelist = r;
+	release(&kmem.lock);
+}
+
+void
+freerange(void* pa_start, void* pa_end)  // 清空范围内每一页物理内存
+{
+	char* p;
+	// PGROUNDUP也是为了确保内存对齐
+	p = (char*)PGROUNDUP((uint64)pa_start);
+	for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
+		kfree(p);
+}
+
+void kinit()
+{
+	initlock(&kmem.lock, "kmem");
+	freerange(end, (void*)PHYSTOP);  // end为first address after kernel
+}
+
+
+
+sbrk系统调用
+
+int
+growproc(int n)
+{
+	uint sz;
+	struct proc *p = myproc();
+	sz = p->sz;
+	
+	if(n > 0){
+		if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0){
+			return -1;
+		}
+	}else if(n < 0){
+		sz = uvmdealloc(p->pagetable, sz, sz + n);
+	}
+	p->sz = sz;
+	return 0;
+}
+
+uint64
+uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
+{
+	char *mem;
+	uint64 a;
+	
+	if(newsz < oldsz) return oldsz;
+	
+	oldsz = PGROUNDUP(oldsz);
+	for(a = oldsz; a < newsz; a += PGSIZE){
+		mem = kalloc();
+		if(mem == 0){
+			uvmdealloc(pagetable, a, oldsz);
+			return 0;
+		}
+		memset(mem, 0, PGSIZE);  // 置空
+		if(mappages(pagetable, a, PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R|PTE_U) != 0){
+			kfree(mem);
+			uvmdealloc(pagetable, a, oldsz);
+			return 0;
+		}
+	}
+	return newsz;
+}
+
+uint64
+uvmdealloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
+{
+	if(newsz >= oldsz) return oldsz;
+	
+	if(PGROUNDUP(newsz) < PGROUNDUP(oldsz)){
+		int npages = (PGROUNDUP(oldsz) - PGROUNDUP(newsz)) / PGSIZE;
+		uvmunmap(pagetable, PGROUNDUP(newsz), npages, 1);
+	}
+	return newsz;
+}
+
+
+int
+copyin(pagetable_t pagetable, char* dst, uint64 srcva, uint64 len)
+{
+	// pagetable 表示用户页表
+	// dst 表示所要复制到的目标地址，可以是一个缓冲区；
+	// 并添加用户空间的映射，这样避免在用户和内核之间切换时必须切换页表
+	// srcva 是复制内容的起始地址（用户虚拟空间下），将从该地址开始复制数据
+	// len复制的长度
+	uint64 n, va0, pa0;
+	
+	while (len > 0) {
+		va0 = PGROUNDDOWN(srcva);  // 找到虚拟地址所在页面的起始地址
+		pa0 = walkaddr(pagetable, va0);  // walkaddr作用是查找用户空间中，虚拟地址对应的真实物理地址
+		if (pa == 0) return -1;
+		n = PGSIZE - (srcva - va0);  // 计算偏移，计算这个页面需要复制多少内容？
+		if (n > len)
+			n = len;  // 复制的内容大小是定为n的，一次性复制大小为n的内容；如果n>len，直接重新赋值给n
+			
+		memmove(dst, (void*)(pa0 + (srcva - va0)), n);  // 进行移动，pa0 + (srcva - va0)为源地址，其中(srcva-va0)为大小
+		
+		len -= n;
+		dst += n;  // 目标地址+n，连续空间
+		srcva = va0 + PGSIZE;  // 内容可能跨页，到下一页中继续复制
+	}
+	return 0;
+}
+
+int
+copyin_new(pagetable_t pagetable, char* dst, uint64 srcva, uint64 len)
+{
+	struct proc* p = myproc();
+	// 进程虚拟地址起始地址是0，因此进程虚拟内存大小等价于进程虚拟地址的结束地址
+	
+	// 复制内容的起始地址（虚拟地址）超出了进程的结束地址（虚拟地址） pass
+	// 复制内容的结束地址（虚拟地址）超出了进程的结束地址（虚拟地址） pass
+	// 第三个条件未知
+	if (srcva >= p->sz || srcva + len > p->sz || srcva + len < srcva) return -1;
+	memmove((void*) dst, (void*) srcva, len);  // 进行复制
+	stats.ncopyin ++ ;  // 每当该函数执行一次，进程中的调用次数计数器就++
+	return 0;
+}
+
+
+int 
+copyin(pagetable_t pagetable, char* dst, uint64 srcva, uint64 len)
+{
+	uint64 n, va0;
+	while (len > 0) {
+		va0 = PGROUNDDOWN(srcva);  // 找到所在页面的起始地址
+		n = PGSIZE - (srcva - va0);  // 计算偏移，计算这个页面需要复制多少内容
+		if (n > len)
+			n = len;
+		if(copyin_new(pagetable, dst, (void*)(srcva - va0), n)) 
+			return -1;
+		
+		len -= n;
+		dst += n;
+		srcva = v0 + PGSIZE;
+	}
+	return 0;
+}
+
+
+
+1.一个用户进程对应一个用户页表，首先根据用户页表 + 所有虚拟地址 va(s) 得到 用户进程对应的所有物理页面
+
+（这里上面这条其实不用拿到所有虚拟地址 va(s)，只需要遍历第三级页表，看哪些pte条目的pte_v是有效的就行了
+
+直接walk
+
+2. 在进程的内核页表中，创建用户空间在其中的映射，也就是说在内核页表的va这个位置创建映射（可行因为不重叠，题目说明了)
+	具体怎么创建，首先拿到va，先walk到具体的pte表项，设置pte权限为 可读可写可执行
+	
+	然后将物理页面的地址（不需要具体页面的内容）全部写入页表表项，一一对应的写入，这样即在内核页表中建立了与用户地址空间的映射了
+	
+3. 在其他函数中，如果内核对进程的用户映射做了修改，那么进程里面的内核页表也要做相同的修改
+
+	fork
+	exec
+	sbrk
+
+4. userinit中，将initcode写入了用户页表中，我们也要对用户内核页表做同样的事，将initcode写入内核页表中 √
+
+5. 设置 PTE_R | PTE_W | PTE_X | PTE_V   √
+
+6. 不能让用户的虚拟地址增长超过 0xC000000
+
+
+void 
+map_user_kernel(pagetable_t user_pagetable, pagetable_t kernel_pagetable, uint64 oldsz, uint64 newsz)
+{
+	pte_t* pte_user, pte_kernel;
+	uint64 pa, i;
+	uint flags;
+	
+	oldsz = PGROUNDUP(oldsz);
+	for (i = oldsz; i < newsz; i += PGSIZE) {
+		if((pte_user = walk(user_pagetable, i, 0)) == 0)
+			panic("map_user_kernel: src pte does not exist");
+		if((pte_kernel = walk(kernel_pagetable, i, 1) == 0))
+			panic("map_user_kernel: dist pte does not exist");
+		
+		flags = (PTE_FLAGS(*pte_user)) & (~PTE_U);  // 内核不能访问带有PTE_U标识的，所以要去掉
+		pa = PTE2PA(*pte_user);
+		*pte_kernel = PA2PTE(pa) | flags;
+	}
+}
