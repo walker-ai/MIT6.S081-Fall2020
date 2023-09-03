@@ -93,6 +93,9 @@ struct proc {
   int killed;                  // If non-zero, have been killed
   int xstate;                  // Exit status to be returned to parent's wait
   int pid;                     // Process ID
+  int ticks;                   // 警报间隔
+  void (*handler)();           // 处理函数的指针
+  int ticks_number;            // 自从上次调用sigalarm过去了多少ticks，或者说距离下次调用还剩多少ticks
 
   // these are private to the process, so p->lock need not be held.
   uint64 kstack;               // Virtual address of kernel stack
