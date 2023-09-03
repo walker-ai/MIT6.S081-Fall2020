@@ -1,0 +1,272 @@
+STVEC	指向内核中处理trap指令的起始地址
+
+SATP	指向了page table的物理地址
+
+SEPC	在trap过程中保存程序计数器PC的值（PC中保存的是下一条指令的地址）
+
+SSRATCH	用于和a0进行交换
+
+mode标志位寄存器
+
+PC
+
+
+为什么要trap？
+
+1. 程序执行系统调用
+
+2. 程序出现了page fault、除0等错误
+
+3. 设备触发中断，当前程序运行需要响应内核设备驱动
+
+trap过程
+
+1. 因为要恢复用户应用程序，保存32个用户寄存器
+
+2. 保存PC 	   （由ecall指令完成，保存在SEPC中）
+
+3. 将mode从user mode 改为 supervisor mode	（由ecall指令完成）
+
+4. 将SATP寄存器指向内核页表
+
+5. 将堆栈寄存器指向内核的一个地址，因为需要堆栈来运行内核中的C函数
+
+6. 设置完毕，跳入内核C代码
+
+
+举个例子，在getcmd中执行write()命令，因为write实际上会进行系统调用，所以会触发trap机制
+
+1. write(2, "$ ", 2);  作为用户代码shell调用write时，实际会关联到shell的库函数，位于usys.S
+
+write:
+	li a7, SYS_write  
+	ecall
+	ret  // ecall执行完返回到shell
+
+ecall执行过程中，会完成从用户空间到内核空间的陷入，执行完后，会返回到用户空间。
+
+这时的page table还是用户页表没有改变，用户页表最后两条pte很接近虚拟地址顶端，
+分别是trapframe page（vaddr为0x3fffffe000）和trampoline page（vaddr为0x3ffffff000），只有内核模式下才可访问
+
+ecall开始执行，做了几件事：将PC保存在SEPC中，以便返回；将mode改为内核模式，
+
+ecall执行完毕，查看入口地址即STVEC，跳转到STVEC指向的指令，于是pc被设置为STVEC内容（即0x3ffffff000）。而STVEC内容是在进入用户空间之前，内核将trampoline page的vaddr存入其中的
+
+接下来需要保存用户寄存器
+
+xv6为每个用户页表都映射了一个trapframe page，这个page用来存放32个用户寄存器和5个其他数据（kernel_stap, kernel_sp, kernel_trap, epc, kernel_hartid），
+而在进入用户空间之前，会将trapframe page的vaddr存入sscratch中
+
+
+uservec函数（trampoline）
+# swap a0 and sscratch
+# so that a0 is trapframe
+0x3ffffff000：		csrrw		a0, sscratch, a0  （作用是互换a0和sscratch的内容，因为）
+
+# save the user registers in trapframe
+sd	ra, 40(a0) 
+sd	sp, 48(a0)
+...
+
+# save the user a0 in p->trapframe->a0
+csrr t0, sccratch
+sd t0, 112(a0)
+
+这样，用户寄存器就都被保存在trapframe page中了
+
+# restore kernel stack point from p->trapframe->kernel_sp
+
+ld sp, 8(a0)
+
+这一步是将内核的堆栈指针（进入用户空间之前就设置好的，指向当前进程的kernel stack）加载到用户寄存器 sp 中，现在sp指向这个进程的kernel stack
+
+# make tp hold the current hartid, from p->trapframe->kernel_hartid
+ld tp, 32(a0)
+
+这一步是装填tp寄存器，也就是当前进程运行在哪个cpu核上，核的编号
+
+# load the address of usertrap(), p->trapframe->kernel_trap
+
+ld t0, 16(a0)
+
+这一步是写入第一个要执行的内核C函数的指针，也就是usertrap
+
+ld t1, 0(a0)
+
+这一步是向t1寄存器中写入数据，这里写入的是kernel page table的地址（严格来说不完全等于，因为要做处理例如移位等）
+
+csrw  satp, t1
+
+这一步，交换satp和t1寄存器，完成从user page table 到 kernel page table的转变
+
+页表发生转变，pc中保存的都是虚拟地址，是需要通过页表来翻译的，但是页表发生变化却依旧能够继续进行，
+这是因为当前我们还处于trampoline代码中，而trampoline代码在用户页表和内核页表都映射到了一个相同的地址
+
+jr t0
+
+这是最后一条指令，跳转到内核的C代码中
+
+
+usertrap函数
+
+1. 更改STVEC寄存器，在内核执行任何操作之前，将内核中trap处理代码的地址写入stvec寄存器中，因为我们
+目前讨论的是用户->内核trap，实际上还存在内核->内核的trap
+
+w_stvec((uint64)kernelvec);
+
+2. 找到当前的进程，通过查找当前进程运行的cpu核编号hartid来确定，刚刚将hartid保存在了tp寄存器
+
+struct proc *p= myproc()
+
+3. 保存用户程序计数器PC，之前已经将其保存在了SEPC中，但是如果说，程序在内核中执行时，我们可能切换到另一个进程，并进入到那个进程的用户空间，
+然后那个进程再进行一个系统调用从而将SEPC寄存器内容覆盖，所以要将PC保存在一个与当前进程关联的内存中，这里用trapframe来保存PC
+
+p->trapframe->epc = r_sepc()
+
+4. 接下来判断跳转到当前trap的原因，有一个寄存器scause保存了这个值，用这个值判断，scause为8时表示系统调用
+
+if (r_scause() == 8) 
+
+	if(p-> killed)  如果进程被杀掉就不用继续执行了 
+	    exit(-1)
+
+5. 当恢复应用程序时，我们希望在ecall之后的一条指令恢复，因此保存的程序计数器+4，这样恢复时就自然执行ecall下一条指令了
+
+p->trapframe->epc += 4
+
+6. 处理系统调用时，需要打开中断
+
+intr_on()
+
+7. 调用syscall()
+
+syscall()，syscall中系统调用号被保存在寄存器a7中，这里write的系统调用号为16
+
+num = p->trapframe->a7
+p->trapframe->a0 = syscalls[num]();  syscalls[num]指的就是sys_write，然后进行调用，最后sys_write返回值赋给a0
+
+
+8. 再次检查进程是否被杀掉，因为不用恢复一个被杀掉的进程
+
+9. 调用usertrapert函数
+
+
+
+usertrapret函数，这个函数做一些，从内核空间返回到用户空间所需要的一些工作
+
+
+1. 关闭中断，因为要更新STVEC寄存器来指向用户空间的trap处理代码，如果这时发生了中断，那么程序会走到用户空间的trap处理代码，会出错
+
+intr_off()
+
+2. 更新STVEC寄存器指向trampoline代码，在那里会执行sret指令以返回到用户空间，sret会重新打开中断
+
+w_stvec(TPAMPOLINE + (uservec - trampoline)); 
+
+3. 更新trapframe的前五条数据
+
+p->trapframe->kernel_satp = r_satp();		// 存储内核页表地址
+p->trapframe->kernel_sp = p->kstack + PGSIZE  // 存储用户进程kernel stack
+p->trapframe->kernel_trap = (uint64)usertrap;	// 存储usertrap函数的指针，这样trampoline代码才能跳转到这个函数，例如ld t0, 16(a0)
+p->trapframe->kernel_hartid = r_tp();  // 存储cpu核编号
+// 还有一个epc之前在usertrap函数中已经设置过了
+
+现在我们在usertrapret函数中，我们正在设置trapframe中的数据，
+这样下一次从用户空间转换到内核空间时可以用到这些数据。
+
+4. 设置SSTATUS寄存器，这个寄存器的SPP bit位控制了sret的行为
+
+如果为0，则返回user mode 而不是 supervisor mode
+SPIE bit位控制了执行完sret后是否打开中断
+
+x &= ~SSTATUS_SPP;  // clear SPP to 0 for user mode
+x |= SSTATUS_SPIE;  // enable interrupts in user mode
+w_sstatus(x);
+
+5. 将SEPC寄存器的值重新设置成之前保存的用户计数寄存器的值
+
+w_sepc(p->trapframe->epc);
+
+6. 进行最后的设置，准备跳转回trampoline以执行userret
+
+
+uint64 satp = MAKE_SATP(p->pagetable)
+
+准备好用户的page_table，这样才能转换回用户空间使用用户页表
+
+uint64 fn = TRAMPOLINE + (userret - trampoline);
+
+计算出我们要跳转回汇编代码trampoline.S的地址，我们期望跳转回userret函数
+
+((void(*)(uint64, uint64))fn)(TRAMPOLINE, satp);
+
+将fn作为一个指针，执行相应的函数即userret函数，并传入两个参数，两个参数存储在a0，a1中
+
+userret函数
+
+现在程序又来到了trampoline.S中
+
+1. 切换pagetable
+
+csrw satp, a1  // 第二个参数存放在a1中，即参数satp，再写入satp寄存器中
+sfence.vma zero, zero  // 清空页表缓存
+
+这样，page table就从kernel_pagetable 转化为了 user pagetable，而没有崩溃，因为trampoline的映射在两个页表中都是相同的
+
+
+
+2. 恢复sscratch寄存器
+
+# put the saved user a0 in sscratch, so we
+# can swap it with our a0(TRAPFRAME) in the last step.
+
+ld t0, 112(a0)
+csrw sscratch, t0
+
+这一步是当时
+# save the user a0 in p->trapframe->a0
+csrr t0, sccratch
+sd t0, 112(a0)
+
+这一步的逆过程，之前将sccratch的值(即文件描述符2）存到了a0的112偏移上，但是中间发生了一件事，就是执行完系统
+调用write后，系统调用的返回值2覆盖了保存在a0中的值（即文件描述符2），所以相应的sscratch中的值也是2，
+
+所以现在trapframe 中的a0的值还是系统调用的返回值，
+
+到目前为止，所有的寄存器内容还是属于内核
+
+接下来我们要用之前保存在trapframe中的用户寄存器内容真正恢复到 用户寄存器中去
+
+# restore all but a0 from TRAPFRAME
+ld ra, 40(a0)
+ld sp, 48(a0)
+...
+...
+
+这些指令将trapframe保存的值加载到用户寄存器中去
+
+
+a0现在还是个例外，他现在仍是指向trapframe的指针
+
+然后交换sscratch和a0
+
+# restore user a0 and save TRAPFRAME in sscratch
+csrrw a0, sscratch, a0
+
+现在恢复原样了，a0是返回值，sscratch是trapframe的地址，之后trapframe的地址
+会一直保存在sscratch中，直到用户程序执行了另一次trap，现在我们还在kernel中
+
+# return to user mode and user pc.
+# usertrapret() set up sstatus and sepc.
+
+sret
+
+sret是在kernel中的最后一条指令，当我们执行完这条指令后
+
+· 程序会切换回usermode
+· SEPC寄存器的数值拷贝到PC寄存器中
+· 重新打开中断
+
+现在回到了用户空间
+
+然后执行 ret 指令，就返回到了shell中
