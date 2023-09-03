@@ -1,6 +1,6 @@
-# Util
+# Lab: Xv6 and Unix utilities
 
-## Boot xv6
+## boot xv6
 
 搭建环境
 
