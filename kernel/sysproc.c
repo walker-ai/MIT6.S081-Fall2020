@@ -98,8 +98,32 @@ sys_uptime(void)
 }
 
 uint64
-sys_sigalarm(int ticks, void *(handler)())
+sys_sigalarm()
 {
+  int interval;
+  uint64 handler;
+
+  if (argint(0, &interval) < 0) {
+    return -1;  // 获取参数0 - interval失败
+  }
+
+  if (argaddr(1, &handler) < 0) {
+    return -1;  // 获取参数1 - handler失败
+  }
+  // 将interval和handler存储到proc中
+  // printf("interval = %d\n", interval);
+  // printf("handler = %p\n", handler);
+
+  myproc()->alarm_interval = interval;
+  myproc()->handler = handler;
+  myproc()->ticks_number = ticks;  // 全局变量ticks表示当前的ticks，赋值给调用sigalarm时的ticks编号
+
+  // 每个tick都会触发一次硬件时钟中断，相应的中断处理程序需要自己编写例如 usertrap
+  
+  // 每n个tick强制调用处理函数，然后等待一段时间
+
+  // 调用了多少次usertrap，就是过去了多少次tick
+
   return 0;
 }
 

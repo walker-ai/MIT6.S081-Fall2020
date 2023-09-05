@@ -36,6 +36,7 @@ trapinithart(void)
 void
 usertrap(void)
 {
+  
   int which_dev = 0;
 
   if((r_sstatus() & SSTATUS_SPP) != 0)
@@ -49,8 +50,8 @@ usertrap(void)
   
   // save user program counter.
   p->trapframe->epc = r_sepc();
-  
-  if(r_scause() == 8){
+
+  if(r_scause() == 8){  // 找到进入当前trap的原因，8表示系统调用
     // system call
 
     if(p->killed)
@@ -65,9 +66,9 @@ usertrap(void)
     intr_on();
 
     syscall();
-  } else if((which_dev = devintr()) != 0){
+  } else if((which_dev = devintr()) != 0){  // 处理设备中断, which_dev可能会返回1或2，只有2是计时器中断
     // ok
-  } else {
+  } else {  // page fault，除0等错误诱发的trap
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;
@@ -77,8 +78,14 @@ usertrap(void)
     exit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2)
+  if(which_dev == 2) {
+    // printf("设备中断, p->alarm_interval = %d, 当前ticks = %d, 调用sigalarm的ticks=%d\n", p->alarm_interval, ticks, p->ticks_number);
+    if ((ticks - p->ticks_number) % p->alarm_interval == 0) {
+      // printf("调用handler, 此时ticks = %d\n", ticks);
+      p->trapframe->epc = p->handler;
+    }
     yield();
+  }
 
   usertrapret();
 }

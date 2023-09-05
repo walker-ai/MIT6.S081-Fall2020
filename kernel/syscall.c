@@ -141,11 +141,11 @@ syscall(void)
 
   num = p->trapframe->a7;
 
-  if (num == 22) {
-    printf("call the sigalarm success!\n");
-  } else if (num == 23) {
-    printf("call the sigreturn success!\n");
-  }
+  // if (num == 22) {
+  //   printf("call the sigalarm success!\n");
+  // } else if (num == 23) {
+  //   printf("call the sigreturn success!\n");
+  // }
   
   if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
     p->trapframe->a0 = syscalls[num]();

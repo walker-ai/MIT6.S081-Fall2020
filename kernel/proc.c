@@ -121,6 +121,10 @@ found:
     return 0;
   }
 
+  p->alarm_interval = 0;
+  p->handler = 0;  // C语言中，NULL等价于0
+  p->ticks_number = 0;
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
