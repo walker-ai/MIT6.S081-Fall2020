@@ -121,9 +121,15 @@ found:
     return 0;
   }
 
+  if((p->alarm_trapframe = (struct trapframe *)kalloc()) == 0){
+    release(&p->lock);
+    return 0;
+  }
   p->alarm_interval = 0;
   p->handler = 0;  // C语言中，NULL等价于0
   p->ticks_number = 0;
+  p->is_alarm = 0;
+  
 
   // Set up new context to start executing at forkret,
   // which returns to user space.
@@ -142,7 +148,10 @@ freeproc(struct proc *p)
 {
   if(p->trapframe)
     kfree((void*)p->trapframe);
+  if(p->alarm_trapframe)
+    kfree((void*)p->alarm_trapframe);
   p->trapframe = 0;
+  p->alarm_trapframe = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
@@ -154,6 +163,13 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+
+  // trap 
+  p->alarm_trapframe = 0;
+  p->alarm_interval = 0;
+  p->handler = 0;
+  p->ticks_number = 0;
+  p->is_alarm = 0;
 }
 
 // Create a user page table for a given process,

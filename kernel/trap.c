@@ -60,7 +60,6 @@ usertrap(void)
     // sepc points to the ecall instruction,
     // but we want to return to the next instruction.
     p->trapframe->epc += 4;
-
     // an interrupt will change sstatus &c registers,
     // so don't enable until done with those registers.
     intr_on();
@@ -80,9 +79,11 @@ usertrap(void)
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2) {
     // printf("设备中断, p->alarm_interval = %d, 当前ticks = %d, 调用sigalarm的ticks=%d\n", p->alarm_interval, ticks, p->ticks_number);
-    if ((ticks - p->ticks_number) % p->alarm_interval == 0) {
-      // printf("调用handler, 此时ticks = %d\n", ticks);
+    if (p->alarm_interval !=0 && p->is_alarm == 0 && ++ p->ticks_number == p->alarm_interval) {
+      memmove(p->alarm_trapframe, p->trapframe, sizeof(struct trapframe));
+      p->is_alarm = 1;
       p->trapframe->epc = p->handler;
+      p->ticks_number = 0;
     }
     yield();
   }

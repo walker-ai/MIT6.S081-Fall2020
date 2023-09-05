@@ -96,12 +96,14 @@ struct proc {
   int alarm_interval;          // 警报间隔
   uint64 handler;              // 处理函数的指针
   int ticks_number;            // 自从上次调用sigalarm过去了多少ticks，或者说距离下次调用还剩多少ticks
+  int is_alarm;                // 判断当前进程是否在报警，防止重复调用handler
 
   // these are private to the process, so p->lock need not be held.
   uint64 kstack;               // Virtual address of kernel stack
   uint64 sz;                   // Size of process memory (bytes)
   pagetable_t pagetable;       // User page table
   struct trapframe *trapframe; // data page for trampoline.S
+  struct trapframe *alarm_trapframe;  // 保存的陷进帧备份
   struct context context;      // swtch() here to run process
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
