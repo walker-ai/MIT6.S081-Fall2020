@@ -78,7 +78,6 @@ usertrap(void)
 
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2) {
-    // printf("设备中断, p->alarm_interval = %d, 当前ticks = %d, 调用sigalarm的ticks=%d\n", p->alarm_interval, ticks, p->ticks_number);
     if (p->alarm_interval !=0 && p->is_alarm == 0 && ++ p->ticks_number == p->alarm_interval) {
       memmove(p->alarm_trapframe, p->trapframe, sizeof(struct trapframe));
       p->is_alarm = 1;

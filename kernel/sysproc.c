@@ -102,7 +102,7 @@ sys_sigalarm()
 {
   // 将interval和handler存储到proc中
   if (argint(0, &myproc()->alarm_interval) < 0) {
-    return -1;  // 获取参数0 - interval失败
+    return -1;  // 获取参数0 - alarm_interval失败
   }
 
   if (argaddr(1, &myproc()->handler) < 0) {
