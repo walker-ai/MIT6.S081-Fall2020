@@ -270,3 +270,4 @@ argaddr(int n, uint64 *ip)
 }
 ```
 
+参考自：[http://xv6.dgs.zone/labs/requirements/lab5.html](http://xv6.dgs.zone/labs/requirements/lab5.html)
