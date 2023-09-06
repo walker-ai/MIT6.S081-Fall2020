@@ -72,17 +72,21 @@ usertrap(void)
     // 需要用到 mappages，这是为va和pa添加映射，并存储到pagetable
     // 需要仿照 uvmalloc，uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
     uint64 va = r_stval();
-    printf("page fault %p\n", va);
-    uint64 ka = (uint64)kalloc();
-    if(ka == 0) {
-      p->killed = 1;  // 没有物理内存可以分配了，out of memory，直接杀掉进程
-    } else {
+    uint64 ka;
+    // printf("page fault %p\n", va);
+  
+    // 判断出错的页面虚拟地址是否在栈空间之上，否则杀掉进程
+    // 如果某个进程在高于sbrk()分配的任何虚拟内存地址上出现页错误，则终止该进程。
+    // 没有物理内存可以分配了，out of memory，直接杀掉进程
+    if (PGROUNDUP(p->trapframe->sp) - 1 < va && va < p->sz && (ka = (uint64)kalloc()) != 0) {
       memset((void*)ka, 0, PGSIZE);  // 先将内容置0
       va = PGROUNDDOWN(va);
-      if (mappages(p->pagetable, va, PGSIZE, (uint64)ka, PTE_W|PTE_R|PTE_U) != 0){
+      if (mappages(p->pagetable, va, PGSIZE, ka, PTE_W|PTE_R|PTE_U|PTE_X) != 0){
         kfree((void*)ka);
-        p->killed = 1;  // 这里杀掉进程，对应的在 free_proc()->proc_freepagetable()->uvmunmap()
+        p->killed = 1;  // 这里杀掉进程，对应的在下面exit(-1)，然后free_proc()->proc_freepagetable()->uvmunmap()
       }
+    } else {
+      p->killed = 1;
     }
 
   } else {

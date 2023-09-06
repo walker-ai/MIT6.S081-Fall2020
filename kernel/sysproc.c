@@ -47,12 +47,20 @@ sys_sbrk(void)
   if(argint(0, &n) < 0)
     return -1;
 
-  if(n < 0) {
-    
-  }
+  struct proc *p = myproc();
 
-  addr = myproc()->sz;
-  myproc()->sz = myproc()->sz + n;
+  addr = p->sz;
+  uint64 sz = p->sz;
+  
+  if (n > 0) {
+    // lazy allocation
+    p->sz += n;
+  } else if (sz + n > 0){  // 如果n<0表示缩小用户内存，返回缩小后的sz，但缩小后的sz要>0
+    sz = uvmdealloc(p->pagetable, sz, sz + n);
+    p->sz = sz; 
+  } else {
+    return -1;
+  }
   /*
   if(growproc(n) < 0)  // 原先的代码是eager allocation机制，现在是lazy allocation机制，实际分配在trap中实现
     return -1;

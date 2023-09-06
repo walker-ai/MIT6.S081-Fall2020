@@ -68,6 +68,23 @@ int
 argaddr(int n, uint64 *ip)
 {
   *ip = argraw(n);
+
+  struct proc *p = myproc();
+
+  if(walkaddr(p->pagetable, *ip) == 0){  // 得到的虚拟地址*ip未被分配物理地址
+    uint64 ka;
+    if(PGROUNDUP(p->trapframe->sp) - 1 < *ip && *ip < p->sz && (ka = (uint64)kalloc()) != 0) {
+      memset((void*)ka, 0, PGSIZE);
+
+      if(mappages(p->pagetable, PGROUNDDOWN(*ip), PGSIZE, ka, PTE_W|PTE_R|PTE_U|PTE_X) != 0){
+        kfree((void*)ka);
+        return -1;
+      }
+    } else {
+      return -1;
+    }
+  }
+
   return 0;
 }
 
