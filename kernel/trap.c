@@ -67,6 +67,24 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  } else if(r_scause() == 13 || r_scause() == 15){  // page fault 
+    // stval 中保存的是，访问未分配物理页面的内存，因此需要为其分配物理页面
+    // 需要用到 mappages，这是为va和pa添加映射，并存储到pagetable
+    // 需要仿照 uvmalloc，uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
+    uint64 va = r_stval();
+    printf("page fault %p\n", va);
+    uint64 ka = (uint64)kalloc();
+    if(ka == 0) {
+      p->killed = 1;  // 没有物理内存可以分配了，out of memory，直接杀掉进程
+    } else {
+      memset((void*)ka, 0, PGSIZE);  // 先将内容置0
+      va = PGROUNDDOWN(va);
+      if (mappages(p->pagetable, va, PGSIZE, (uint64)ka, PTE_W|PTE_R|PTE_U) != 0){
+        kfree((void*)ka);
+        p->killed = 1;  // 这里杀掉进程，对应的在 free_proc()->proc_freepagetable()->uvmunmap()
+      }
+    }
+
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());

@@ -46,10 +46,15 @@ sys_sbrk(void)
 
   if(argint(0, &n) < 0)
     return -1;
+
+  if(n < 0) {
+    
+  }
+
   addr = myproc()->sz;
   myproc()->sz = myproc()->sz + n;
   /*
-  if(growproc(n) < 0)
+  if(growproc(n) < 0)  // 原先的代码是eager allocation机制，现在是lazy allocation机制，实际分配在trap中实现
     return -1;
   */
   return addr;
