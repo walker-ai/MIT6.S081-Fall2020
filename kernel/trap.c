@@ -67,6 +67,28 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  } else if (r_scause() == 13 || r_scause() == 15) {
+    uint64 fault_va = r_stval();
+    uint64 pa;
+    uint64 pte;
+    pa = walkaddr(p->pagetable, fault_va);
+    pte = PA2PTE(pa);
+    uint flags = PTE_FLAGS(pte);
+    
+    // 查看是否是cow相关页面，是则新分配与一个页面，并将旧页面内容复制进去
+    if(flags & (1L << 8)) {
+      uint64 ka = (uint64)kalloc();
+      if (ka == 0) {
+        p->killed = 1;  // cow页面错误并且没有可用内存，终止进程
+      } else {
+        memmove((char*)ka, (char*)pa, PGSIZE); 
+        if(mappages(p->pagetable, PGROUNDDOWN(fault_va), PGSIZE, ka, PTE_R|PTE_W|PTE_U|PTE_X) != 0) {
+          kfree((void*)ka);
+          p->killed = 1;
+        }
+      }
+    } 
+
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());

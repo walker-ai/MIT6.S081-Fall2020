@@ -311,22 +311,33 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
+  // char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
       panic("uvmcopy: pte should exist");
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
-    pa = PTE2PA(*pte);
-    flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+    pa = PTE2PA(*pte);  // 父进程的物理页
+    flags = PTE_FLAGS(*pte);  // 父进程的标志位
+
+    uint mask = 0x3FB;  // 11 1111 1011  将PTE_W置0的掩码
+    flags &= mask;  // 将子进程的PTE_W清0
+    flags |= (1L << 8);  // 设置cow bit位，表示当前page是cow相关
+
+    *pte = PA2PTE(pa) | flags;  // 将父进程的PTE_W清0，并设置cow bit位，表示当前page是cow相关
+
+    // if((mem = kalloc()) == 0)
+    //   goto err;
+    // memmove(mem, (char*)pa, PGSIZE);  // 将父进程物理页的内容全部拷贝到新开辟的内存中去
+    if(mappages(new, i, PGSIZE, pa, flags) != 0){
+      // 即使映射子进程不成功也不至于 kfree(pa);
       goto err;
     }
+    // if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
+    //   kfree(mem);
+    //   goto err;
+    // }
   }
   return 0;
 
